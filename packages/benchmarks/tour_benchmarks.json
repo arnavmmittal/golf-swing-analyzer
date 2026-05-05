@@ -1,0 +1,99 @@
+{
+  "_meta": {
+    "description": "Reference biomechanical ranges for a +5 handicap / tour-level swing.",
+    "sources": [
+      "Jim McLean, The X-Factor Swing (1997)",
+      "Cheetham et al., Computer-aided method for analyzing golf swing (2001)",
+      "TPI (Titleist Performance Institute) screening data",
+      "Hume, Keogh, Reid, Sports Med 2005: A review of full swing biomechanics"
+    ],
+    "units": "see per-metric notes"
+  },
+  "metrics": {
+    "tempo_ratio": {
+      "label": "Backswing-to-downswing tempo ratio",
+      "ideal_min": 2.8,
+      "ideal_max": 3.2,
+      "acceptable_min": 2.4,
+      "acceptable_max": 3.6,
+      "direction": "target",
+      "units": "ratio",
+      "fault_high": "Downswing too rushed relative to backswing; loss of sequencing",
+      "fault_low": "Backswing too quick or downswing too slow; loss of energy storage"
+    },
+    "x_factor": {
+      "label": "Shoulder-hip separation at top",
+      "ideal_min": 40,
+      "ideal_max": 55,
+      "acceptable_min": 30,
+      "acceptable_max": 65,
+      "direction": "target",
+      "units": "deg",
+      "fault_low": "Insufficient torso coil; reduced power potential",
+      "fault_high": "Over-rotation can compromise stability"
+    },
+    "hip_open_impact": {
+      "label": "Hip rotation past square at impact",
+      "ideal_min": 35,
+      "ideal_max": 45,
+      "acceptable_min": 25,
+      "acceptable_max": 55,
+      "direction": "target",
+      "units": "deg",
+      "fault_low": "Hips not clearing — leads to early extension and a blocked or hooked shot",
+      "fault_high": "Hips spinning out — leads to loss of lag and weak slices"
+    },
+    "spine_stability": {
+      "label": "Spine angle variability across swing",
+      "ideal_min": 0,
+      "ideal_max": 3,
+      "acceptable_min": 0,
+      "acceptable_max": 5,
+      "direction": "lower_better",
+      "units": "deg (stdev)",
+      "fault_high": "Posture changes during swing — inconsistent strike pattern"
+    },
+    "lead_arm_top": {
+      "label": "Lead arm angle at top of backswing",
+      "ideal_min": 80,
+      "ideal_max": 95,
+      "acceptable_min": 70,
+      "acceptable_max": 105,
+      "direction": "target",
+      "units": "deg",
+      "fault_low": "Bent lead arm — collapses width and shortens swing arc",
+      "fault_high": "Hyperextended (rare); usually a measurement artifact"
+    },
+    "head_sway": {
+      "label": "Lateral head travel relative to shoulder width",
+      "ideal_min": 0,
+      "ideal_max": 0.05,
+      "acceptable_min": 0,
+      "acceptable_max": 0.12,
+      "direction": "lower_better",
+      "units": "ratio",
+      "fault_high": "Head sliding off the ball — inconsistent contact, fat/thin shots"
+    },
+    "weight_transfer": {
+      "label": "Weight on lead foot at impact",
+      "ideal_min": 0.75,
+      "ideal_max": 0.9,
+      "acceptable_min": 0.6,
+      "acceptable_max": 1.0,
+      "direction": "target",
+      "units": "ratio",
+      "fault_low": "Hanging back on trail leg — adds loft, weak strike, fat contact"
+    },
+    "shaft_lean_impact": {
+      "label": "Forward shaft lean at impact",
+      "ideal_min": 5,
+      "ideal_max": 9,
+      "acceptable_min": 0,
+      "acceptable_max": 14,
+      "direction": "target",
+      "units": "deg",
+      "fault_low": "Adding loft / scooping — high spin, weak ball flight",
+      "fault_high": "Excessive lean — low launch, deloft errors"
+    }
+  }
+}
