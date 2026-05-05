@@ -18,7 +18,7 @@ from typing import Any
 
 from app.services.metrics import Metrics
 
-BENCHMARKS_PATH = Path(__file__).resolve().parents[3] / "packages" / "benchmarks" / "tour_benchmarks.json"
+BENCHMARKS_PATH = Path(__file__).resolve().parents[4] / "packages" / "benchmarks" / "tour_benchmarks.json"
 
 
 @dataclass
