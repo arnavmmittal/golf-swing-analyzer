@@ -14,14 +14,39 @@ export function Results({
     <div className="space-y-8">
       <Hero result={result} videoSrc={videoSrc} />
       <section>
-        <h2 className="font-display text-2xl text-fairway-900 mb-4">
-          The eight tour benchmarks
+        <h2 className="font-display text-2xl text-fairway-900 mb-1">
+          Measured from this view
         </h2>
+        <p className="text-sm text-fairway-700/70 mb-4">
+          {result.video.view === "dtl"
+            ? "Down-the-line. Five metrics this angle can validly measure."
+            : "Face-on. Five metrics this angle can validly measure."}
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {result.scores.map((s) => (
             <MetricCard key={s.name} metric={s} />
           ))}
         </div>
+        {result.metrics_not_measured_from_this_view.length > 0 && (
+          <div className="mt-5 rounded-xl bg-sand-50 border border-sand-100 p-4">
+            <div className="text-[10px] font-semibold tracking-wider uppercase text-sand-500 mb-2">
+              Not measurable from this view
+            </div>
+            <ul className="text-sm text-fairway-900/80 space-y-1">
+              {result.metrics_not_measured_from_this_view.map((m) => (
+                <li key={m.name}>
+                  <span className="font-medium">{m.label}</span>{" "}
+                  <span className="text-fairway-700/70">
+                    — needs {m.valid_views.join(" or ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-fairway-700/60">
+              For a complete audit, also upload a {result.video.view === "dtl" ? "face-on" : "down-the-line"} video.
+            </p>
+          </div>
+        )}
       </section>
       <section>
         <h2 className="font-display text-2xl text-fairway-900 mb-4">

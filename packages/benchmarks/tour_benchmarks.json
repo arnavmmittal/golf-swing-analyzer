@@ -7,7 +7,8 @@
       "TPI (Titleist Performance Institute) screening data",
       "Hume, Keogh, Reid, Sports Med 2005: A review of full swing biomechanics"
     ],
-    "units": "see per-metric notes"
+    "units": "see per-metric notes",
+    "valid_views_explanation": "Camera angle each metric can be measured reliably from. dtl = down-the-line (camera behind ball on target line). face-on = perpendicular to target line, in front of golfer. any = view-independent."
   },
   "metrics": {
     "tempo_ratio": {
@@ -18,6 +19,7 @@
       "acceptable_max": 3.6,
       "direction": "target",
       "units": "ratio",
+      "valid_views": ["dtl", "face-on"],
       "fault_high": "Downswing too rushed relative to backswing; loss of sequencing",
       "fault_low": "Backswing too quick or downswing too slow; loss of energy storage"
     },
@@ -29,6 +31,7 @@
       "acceptable_max": 65,
       "direction": "target",
       "units": "deg",
+      "valid_views": ["dtl"],
       "fault_low": "Insufficient torso coil; reduced power potential",
       "fault_high": "Over-rotation can compromise stability"
     },
@@ -40,6 +43,7 @@
       "acceptable_max": 55,
       "direction": "target",
       "units": "deg",
+      "valid_views": ["dtl"],
       "fault_low": "Hips not clearing — leads to early extension and a blocked or hooked shot",
       "fault_high": "Hips spinning out — leads to loss of lag and weak slices"
     },
@@ -51,6 +55,7 @@
       "acceptable_max": 5,
       "direction": "lower_better",
       "units": "deg (stdev)",
+      "valid_views": ["dtl", "face-on"],
       "fault_high": "Posture changes during swing — inconsistent strike pattern"
     },
     "lead_arm_top": {
@@ -61,6 +66,7 @@
       "acceptable_max": 180,
       "direction": "target",
       "units": "deg (3D joint angle, 180 = straight)",
+      "valid_views": ["dtl"],
       "fault_low": "Bent lead arm — collapses width and shortens swing arc",
       "fault_high": "Hyperextended (rare); usually a measurement artifact"
     },
@@ -72,6 +78,7 @@
       "acceptable_max": 0.12,
       "direction": "lower_better",
       "units": "ratio",
+      "valid_views": ["face-on"],
       "fault_high": "Head sliding off the ball — inconsistent contact, fat/thin shots"
     },
     "weight_transfer": {
@@ -82,6 +89,7 @@
       "acceptable_max": 1.0,
       "direction": "target",
       "units": "ratio",
+      "valid_views": ["face-on"],
       "fault_low": "Hanging back on trail leg — adds loft, weak strike, fat contact"
     },
     "shaft_lean_impact": {
@@ -92,6 +100,7 @@
       "acceptable_max": 14,
       "direction": "target",
       "units": "deg",
+      "valid_views": ["face-on"],
       "fault_low": "Adding loft / scooping — high spin, weak ball flight",
       "fault_high": "Excessive lean — low launch, deloft errors"
     }

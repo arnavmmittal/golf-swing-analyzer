@@ -39,11 +39,19 @@ export type Phases = {
   handedness: "right" | "left";
 };
 
+export type UnmeasuredMetric = {
+  name: string;
+  label: string;
+  valid_views: string[];
+};
+
 export type AnalysisResult = {
   analysis_id: string;
+  video: { view: "dtl" | "face-on" };
   video_meta: { fps: number; width: number; height: number; total_frames: number };
   phases: Phases;
   metrics: Record<string, number>;
+  metrics_not_measured_from_this_view: UnmeasuredMetric[];
   scores: MetricScore[];
   overall_score: number;
   feedback: Feedback;

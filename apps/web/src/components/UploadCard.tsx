@@ -4,14 +4,16 @@ import { useRef, useState } from "react";
 import clsx from "clsx";
 
 export type Handedness = "auto" | "right" | "left";
+export type View = "dtl" | "face-on";
 
 type Props = {
-  onUpload: (file: File, handedness: Handedness) => void;
+  onUpload: (file: File, handedness: Handedness, view: View) => void;
   uploading: boolean;
 };
 
 export function UploadCard({ onUpload, uploading }: Props) {
   const [handedness, setHandedness] = useState<Handedness>("auto");
+  const [view, setView] = useState<View>("dtl");
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function UploadCard({ onUpload, uploading }: Props) {
       return;
     }
     setError(null);
-    onUpload(file, handedness);
+    onUpload(file, handedness, view);
   }
 
   return (
@@ -81,23 +83,48 @@ export function UploadCard({ onUpload, uploading }: Props) {
             if (file) handleFile(file);
           }}
         />
-        <div className="mt-6 flex items-center justify-center gap-2 text-sm">
-          <span className="text-fairway-700/70 mr-1">I am</span>
-          {(["auto", "right", "left"] as const).map((opt) => (
-            <button
-              key={opt}
-              type="button"
-              onClick={() => setHandedness(opt)}
-              className={clsx(
-                "px-3 py-1 rounded-full border transition",
-                handedness === opt
-                  ? "bg-fairway-700 text-white border-fairway-700"
-                  : "bg-white border-fairway-500/30 text-fairway-700 hover:border-fairway-500/60",
-              )}
-            >
-              {opt === "auto" ? "auto-detect" : opt === "right" ? "right-handed" : "left-handed"}
-            </button>
-          ))}
+        <div className="mt-6 space-y-3">
+          <div className="flex items-center justify-center gap-2 text-sm">
+            <span className="text-fairway-700/70 mr-1">I am</span>
+            {(["auto", "right", "left"] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setHandedness(opt)}
+                className={clsx(
+                  "px-3 py-1 rounded-full border transition",
+                  handedness === opt
+                    ? "bg-fairway-700 text-white border-fairway-700"
+                    : "bg-white border-fairway-500/30 text-fairway-700 hover:border-fairway-500/60",
+                )}
+              >
+                {opt === "auto" ? "auto-detect" : opt === "right" ? "right-handed" : "left-handed"}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center justify-center gap-2 text-sm">
+            <span className="text-fairway-700/70 mr-1">camera</span>
+            {(["dtl", "face-on"] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setView(opt)}
+                className={clsx(
+                  "px-3 py-1 rounded-full border transition",
+                  view === opt
+                    ? "bg-fairway-700 text-white border-fairway-700"
+                    : "bg-white border-fairway-500/30 text-fairway-700 hover:border-fairway-500/60",
+                )}
+              >
+                {opt === "dtl" ? "down the line" : "face on"}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-fairway-700/60 max-w-md mx-auto">
+            {view === "dtl"
+              ? "From down-the-line we measure tempo, X-Factor, hip rotation, spine stability, and lead arm. Head sway, weight transfer, and shaft lean need a face-on view."
+              : "From face-on we measure tempo, head sway, weight transfer, shaft lean, and spine stability. X-Factor, hip rotation, and lead arm need down-the-line."}
+          </p>
         </div>
         {error && (
           <p className="mt-4 text-sm text-red-600">{error}</p>

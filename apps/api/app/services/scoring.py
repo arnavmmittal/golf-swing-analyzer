@@ -7,6 +7,10 @@ Each metric receives a score 0-100:
 
 We also identify the top 3 faults (largest distance from ideal) which become
 the focus of the AI coaching feedback.
+
+Each metric has a list of camera views it can be reliably measured from.
+Scoring filters by the view of the supplied footage so we don't grade
+metrics we couldn't actually measure (e.g., shaft lean from down-the-line).
 """
 
 from __future__ import annotations
@@ -14,9 +18,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from app.services.metrics import Metrics
+
+View = Literal["dtl", "face-on"]
 
 BENCHMARKS_PATH = Path(__file__).resolve().parents[4] / "packages" / "benchmarks" / "tour_benchmarks.json"
 
@@ -46,7 +52,16 @@ def load_benchmarks(path: Path | None = None) -> dict:
         return json.load(f)
 
 
-def score_metrics(metrics: Metrics, benchmarks: dict | None = None) -> list[MetricScore]:
+def score_metrics(
+    metrics: Metrics,
+    benchmarks: dict | None = None,
+    view: View | None = None,
+) -> list[MetricScore]:
+    """Score metrics against benchmarks.
+
+    If `view` is supplied, only metrics whose `valid_views` includes that
+    view are scored — others are dropped from the result.
+    """
     benchmarks = benchmarks or load_benchmarks()
     bench_metrics = benchmarks["metrics"]
     values = metrics.as_dict()
@@ -56,6 +71,10 @@ def score_metrics(metrics: Metrics, benchmarks: dict | None = None) -> list[Metr
         b = bench_metrics.get(name)
         if not b:
             continue
+        if view is not None:
+            valid_views = b.get("valid_views", [])
+            if valid_views and view not in valid_views:
+                continue
         score, fault = _score_one(value, b)
         scores.append(
             MetricScore(
@@ -70,6 +89,28 @@ def score_metrics(metrics: Metrics, benchmarks: dict | None = None) -> list[Metr
             )
         )
     return scores
+
+
+def metrics_not_measurable_from_view(
+    view: View, benchmarks: dict | None = None
+) -> list[dict]:
+    """Return metric metadata for metrics this view CAN'T measure reliably.
+
+    Useful for the UI to show a 'needs face-on view' note instead of grading
+    the user 0/100 on shaft lean from a DTL clip.
+    """
+    benchmarks = benchmarks or load_benchmarks()
+    bench_metrics = benchmarks["metrics"]
+    out = []
+    for name, b in bench_metrics.items():
+        valid_views = b.get("valid_views", [])
+        if valid_views and view not in valid_views:
+            out.append({
+                "name": name,
+                "label": b["label"],
+                "valid_views": valid_views,
+            })
+    return out
 
 
 def overall_score(scores: list[MetricScore]) -> int:

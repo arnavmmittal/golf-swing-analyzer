@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { UploadCard, type Handedness } from "@/components/UploadCard";
+import { UploadCard, type Handedness, type View } from "@/components/UploadCard";
 import { Results } from "@/components/Results";
 import type { AnalysisResult } from "@/lib/types";
 
@@ -14,7 +14,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<string>("");
 
-  async function handleUpload(file: File, handedness: Handedness) {
+  async function handleUpload(file: File, handedness: Handedness, view: View) {
     setUploading(true);
     setError(null);
     setResult(null);
@@ -23,6 +23,7 @@ export default function Home() {
     const form = new FormData();
     form.append("video", file);
     form.append("handedness", handedness);
+    form.append("view", view);
 
     try {
       // Stage timer — switches the visible label as time passes.

@@ -28,7 +28,11 @@ from app.services.metrics import compute_metrics
 from app.services.phases import detect_phases
 from app.services.pose import extract_pose, stack_landmarks, stack_world_landmarks
 from app.services.render import render_annotated
-from app.services.scoring import overall_score, score_metrics
+from app.services.scoring import (
+    metrics_not_measurable_from_view,
+    overall_score,
+    score_metrics,
+)
 
 load_dotenv()
 logger = logging.getLogger("golf_swing_analyzer")
@@ -60,6 +64,7 @@ def health() -> dict:
 async def analyze(
     video: UploadFile = File(...),
     handedness: Literal["right", "left", "auto"] = Form("auto"),
+    view: Literal["dtl", "face-on"] = Form("dtl"),
 ) -> JSONResponse:
     suffix = Path(video.filename or "upload.mp4").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
@@ -92,10 +97,11 @@ async def analyze(
             world_landmarks=world_landmarks,
         )
 
-        logger.info("Computing metrics for %s", analysis_id)
+        logger.info("Computing metrics for %s (view=%s)", analysis_id, view)
         metrics = compute_metrics(world_landmarks, phases, fps=meta["fps"])
-        scores = score_metrics(metrics)
+        scores = score_metrics(metrics, view=view)
         overall = overall_score(scores)
+        unmeasured = metrics_not_measurable_from_view(view)
 
         logger.info("Generating coaching feedback for %s", analysis_id)
         feedback = generate_feedback(
@@ -111,8 +117,10 @@ async def analyze(
 
         result_payload = {
                 "analysis_id": analysis_id,
+                "video": {"view": view},
                 "video_meta": meta,
                 "phases": phases.as_dict(),
+                "metrics_not_measured_from_this_view": unmeasured,
                 "metrics": metrics.as_dict(),
                 "scores": [
                     {
