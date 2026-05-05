@@ -97,8 +97,7 @@ async def analyze(video: UploadFile = File(...)) -> JSONResponse:
             input_path, output_path, landmarks, phases, fps=meta["fps"]
         )
 
-        return JSONResponse(
-            {
+        result_payload = {
                 "analysis_id": analysis_id,
                 "video_meta": meta,
                 "phases": phases.as_dict(),
@@ -118,7 +117,12 @@ async def analyze(video: UploadFile = File(...)) -> JSONResponse:
                 "feedback": feedback.as_dict(),
                 "annotated_video_url": f"/video/{analysis_id}",
             }
-        )
+
+        # Persist for debugging/inspection alongside the rendered video.
+        result_path = OUTPUT_DIR / f"{analysis_id}.json"
+        result_path.write_text(_json_dumps(result_payload))
+
+        return JSONResponse(result_payload)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -148,3 +152,8 @@ async def _save_upload(upload: UploadFile, dest: Path) -> None:
 
 def _is_safe_id(s: str) -> bool:
     return len(s) == 32 and all(c in "0123456789abcdef" for c in s)
+
+
+def _json_dumps(obj: dict) -> str:
+    import json
+    return json.dumps(obj, indent=2, default=str)
