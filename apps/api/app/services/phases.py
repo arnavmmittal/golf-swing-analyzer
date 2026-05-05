@@ -112,23 +112,13 @@ def detect_phases(
         )
     lead_wrist_idx = LEFT_WRIST if handedness == "right" else RIGHT_WRIST
 
-    # 1b. Refine impact: in world coords, the lead wrist reaches its lowest
-    # point (most negative Y, closest to ground) at ball contact. The
-    # velocity peak detected above lands 3-5 frames AFTER that, in the
-    # follow-through. We search a small window around the velocity peak.
-    if world_landmarks is not None:
-        lookback = max(int(0.10 * fps), 3)  # ~6 frames at 60fps
-        lookahead = max(int(0.05 * fps), 1)
-        lo = max(0, impact_approx - lookback)
-        hi = min(n, impact_approx + lookahead + 1)
-        wrist_y_world = world_landmarks[lo:hi, lead_wrist_idx, 1]
-        # In world coords Y is up — most negative = lowest.
-        impact = lo + int(np.argmin(wrist_y_world))
-
     # 3. Top: lead wrist's highest position (smallest y) in the
     # backswing window — typically 0.6-1.5s before impact for a real swing.
-    top_search_start = max(0, impact - int(1.5 * fps))
-    top_search_end = max(top_search_start + 1, impact - int(0.1 * fps))
+    # Use the velocity-peak-based `impact_approx` here (NOT the refined
+    # impact below). impact_approx is slightly late, which is fine: the
+    # top-search window stays large enough to include the actual top.
+    top_search_start = max(0, impact_approx - int(1.5 * fps))
+    top_search_end = max(top_search_start + 1, impact_approx - int(0.1 * fps))
     if top_search_end > top_search_start:
         wrist_y = landmarks[top_search_start:top_search_end, lead_wrist_idx, 1].copy()
         if len(wrist_y) >= 5:
@@ -168,6 +158,22 @@ def detect_phases(
             address_end = i
             break
         i -= 1
+
+    # 4b. Refine impact: in world coords, the lead wrist reaches its lowest
+    # point (most negative Y, closest to ground) at ball contact. The
+    # velocity peak we anchored on is typically 3-5 frames AFTER that, in
+    # the follow-through. We search a small window around the velocity peak.
+    # Done AFTER top detection (which uses impact_approx) so that the
+    # refinement only affects impact-frame body-position readings, not the
+    # tempo measurement.
+    if world_landmarks is not None:
+        lookback = max(int(0.10 * fps), 3)  # ~6 frames at 60fps
+        lookahead = max(int(0.05 * fps), 1)
+        lo = max(top + 1, impact_approx - lookback)
+        hi = min(n, impact_approx + lookahead + 1)
+        if hi > lo:
+            wrist_y_world = world_landmarks[lo:hi, lead_wrist_idx, 1]
+            impact = lo + int(np.argmin(wrist_y_world))
 
     # 5. Finish: walking forward from impact, first frame below 20% of peak.
     finish_threshold = peak_speed * 0.20
