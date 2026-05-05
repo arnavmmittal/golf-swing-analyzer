@@ -171,11 +171,17 @@ def _head_sway(
     """Lateral head travel (max - min nose x) normalized by shoulder width.
 
     Below 0.05 is tour-level. Above 0.15 means the head is sliding off the ball.
+
+    We use the MEDIAN shoulder width across the swing window as the
+    denominator, not the value at a single frame. Single-frame normalization
+    is brittle: if pose detection is poor at the address frame, the
+    denominator can be near-zero and the ratio explodes.
     """
     a, b = phases.address_end, max(phases.impact + 1, phases.address_end + 2)
     b = min(b, lm.shape[0])
     nose_x = lm[a:b, NOSE, 0]
-    shoulder_w = float(np.linalg.norm(lm[phases.address_end, rs, :2] - lm[phases.address_end, ls, :2]))
+    shoulder_widths = np.linalg.norm(lm[a:b, rs, :2] - lm[a:b, ls, :2], axis=-1)
+    shoulder_w = float(np.median(shoulder_widths))
     if shoulder_w < 1e-6:
         return 0.0
     travel = float(nose_x.max() - nose_x.min())

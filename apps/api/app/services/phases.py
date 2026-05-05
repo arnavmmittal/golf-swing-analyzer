@@ -1,18 +1,24 @@
 """Swing phase segmentation from landmark time series.
 
-We split a swing into six phases by analyzing the lead wrist's motion:
+We split a swing into six phases by analyzing wrist motion:
 
     Address ─► Takeaway ─► Top ─► Downswing ─► Impact ─► Finish
 
-Detection uses the lead-wrist trajectory (left wrist for a right-handed
-golfer, right wrist for a lefty). The signal looks like:
+The detector is **impact-first**:
 
-    velocity ↑ from 0 (takeaway begins)
-    velocity = 0 at top (direction reversal)
-    velocity peak at impact
-    velocity ↓ to ~0 at finish
+    1.  Impact = peak combined wrist speed (the unmistakable event)
+    2.  Handedness = which wrist's path is longer in a window around impact
+        (using the whole clip biases on long videos with pre-swing wandering)
+    3.  Top    = lead wrist's highest position in [impact - 1.5s, impact - 0.1s]
+    4.  Address end = walking BACKWARDS from top, the latest frame where
+        combined wrist speed dropped below 15% of peak
+    5.  Finish = walking forward from impact, first frame below 20% of peak
 
-We work on smoothed signals so we don't trigger on jitter.
+Why impact-first: an earlier version started from the address end and
+searched forward. On long videos (e.g. 18s clips with 16s of pre-swing
+setup), pre-swing wrist motion crossed the takeaway threshold and the
+detector latched onto a fake 'top' during the waggle, producing tempo
+ratios like 0.1:1 and hip-rotation values past anatomical limits.
 """
 
 from __future__ import annotations
@@ -51,64 +57,96 @@ class Phases:
         }
 
 
-def detect_handedness(landmarks: np.ndarray) -> Handedness:
-    """Guess handedness from which wrist is more active during the swing.
-
-    `landmarks` is shape (T, 33, 4). The trail-side wrist (right for righties)
-    moves slightly less than the lead-side at the top. Simpler heuristic: the
-    lead wrist crosses further across the body. We use total path length.
-    """
-    lw_path = _total_path_length(landmarks[:, LEFT_WRIST, :2])
-    rw_path = _total_path_length(landmarks[:, RIGHT_WRIST, :2])
-    # The trail wrist (away from target) typically has the larger path
-    # because it travels overhead at the top. We pick the trailing wrist
-    # to determine handedness: more motion on the right → right-handed
-    # golfer (right is the trail wrist in a RH swing).
-    return "right" if rw_path >= lw_path else "left"
-
-
 def detect_phases(landmarks: np.ndarray, fps: float) -> Phases:
     """Split swing into Address / Takeaway / Top / Impact / Finish.
 
     `landmarks` shape: (T, 33, 4). Returns frame indices.
     """
-    handedness = detect_handedness(landmarks)
+    n = landmarks.shape[0]
+    if n < 10:
+        # Degenerate clip — return something sensible to avoid downstream errors.
+        return Phases(0, max(n // 4, 0), max(n // 2, 1), max(n - 1, 1), "right")
+
+    # Smoothed wrist trajectories and combined speed signal.
+    lw_xy = smooth_savgol(landmarks[:, LEFT_WRIST, :2], window=9, order=2)
+    rw_xy = smooth_savgol(landmarks[:, RIGHT_WRIST, :2], window=9, order=2)
+    lw_speed = velocity(lw_xy, fps=fps)
+    rw_speed = velocity(rw_xy, fps=fps)
+    combined_speed = smooth_savgol(
+        (lw_speed + rw_speed)[:, None], window=9, order=2
+    )[:, 0]
+
+    # 1. Impact: peak combined wrist speed.
+    impact = int(np.argmax(combined_speed))
+    peak_speed = float(combined_speed[impact])
+
+    # 2. Handedness: from a window around impact, not the whole clip.
+    swing_back = int(2.0 * fps)
+    swing_start = max(0, impact - swing_back)
+    lw_path = _total_path_length(landmarks[swing_start : impact + 1, LEFT_WRIST, :2])
+    rw_path = _total_path_length(landmarks[swing_start : impact + 1, RIGHT_WRIST, :2])
+    handedness: Handedness = "right" if rw_path >= lw_path else "left"
     lead_wrist_idx = LEFT_WRIST if handedness == "right" else RIGHT_WRIST
-    lead_shoulder_idx = LEFT_SHOULDER if handedness == "right" else RIGHT_SHOULDER
 
-    wrist_xy = landmarks[:, lead_wrist_idx, :2]
-    wrist_xy = smooth_savgol(wrist_xy, window=9, order=2)
-    speed = velocity(wrist_xy, fps=fps)
-    speed = smooth_savgol(speed[:, None], window=9, order=2)[:, 0]
-
-    # Vertical position of the wrist relative to the lead shoulder.
-    # In image space, y grows downward; the wrist is highest at the top of
-    # the backswing (smallest y).
-    shoulder_y = smooth_savgol(landmarks[:, lead_shoulder_idx, 1:2], window=9, order=2)[:, 0]
-    wrist_y_rel = wrist_xy[:, 1] - shoulder_y
-
-    # Address: low speed at the start of the clip.
-    address_end = _find_takeaway_start(speed)
-
-    # Top: wrist reaches its highest point (smallest y) AFTER address_end.
-    # We constrain the search to the first half of the swing.
-    search_top_end = max(address_end + 5, len(speed) // 2 + 10)
-    search_top_end = min(search_top_end, len(speed))
-    top = address_end + int(np.argmin(wrist_y_rel[address_end:search_top_end]))
-
-    # Impact: max wrist speed AFTER top.
-    if top + 1 < len(speed):
-        impact = top + int(np.argmax(speed[top:]))
+    # 3. Top: lead wrist's highest position (smallest y) in the
+    # backswing window — typically 0.6-1.5s before impact for a real swing.
+    top_search_start = max(0, impact - int(1.5 * fps))
+    top_search_end = max(top_search_start + 1, impact - int(0.1 * fps))
+    if top_search_end > top_search_start:
+        wrist_y = landmarks[top_search_start:top_search_end, lead_wrist_idx, 1].copy()
+        if len(wrist_y) >= 5:
+            wrist_y = smooth_savgol(wrist_y[:, None], window=5, order=2)[:, 0]
+        top = top_search_start + int(np.argmin(wrist_y))
     else:
-        impact = top
+        top = max(impact - max(int(0.5 * fps), 1), 0)
 
-    # Finish: speed drops below 20% of impact speed.
-    finish = _find_finish(speed, impact)
+    # 4. Address end. Two issues to handle:
+    #   (a) Wrist velocity dips to ~0 AT the top of backswing (direction
+    #       reversal), so a naive "first quiet frame walking backwards from
+    #       top" stops on that dip.
+    #   (b) The backswing's peak velocity is much smaller than the
+    #       downswing's, so a threshold based on overall peak speed is too
+    #       aggressive and the entire backswing reads as "quiet" in places.
+    #
+    # We anchor the threshold to the backswing peak (much smaller than the
+    # downswing peak), then do a two-phase walk: first skip backwards past
+    # the top-of-backswing velocity dip until we hit an active frame, then
+    # continue backwards until we hit quiet again — that's the takeaway
+    # start, which we report as address_end.
+    backswing_window = combined_speed[max(0, top - int(1.5 * fps)) : max(top, 1)]
+    backswing_peak = (
+        float(np.max(backswing_window)) if len(backswing_window) > 0 else peak_speed
+    )
+    takeaway_threshold = backswing_peak * 0.20
 
-    # Sanity: ensure ordering.
-    address_end = min(address_end, top)
-    impact = max(impact, top + 1) if top + 1 < len(speed) else top
-    finish = max(finish, impact)
+    address_end = 0
+    i = top
+    # Phase 1: walk backwards through the top-of-backswing quiet zone
+    # until we find an active frame.
+    while i >= 0 and combined_speed[i] < takeaway_threshold:
+        i -= 1
+    # Phase 2: continue walking backwards until we find quiet again.
+    while i >= 0:
+        if combined_speed[i] < takeaway_threshold:
+            address_end = i
+            break
+        i -= 1
+
+    # 5. Finish: walking forward from impact, first frame below 20% of peak.
+    finish_threshold = peak_speed * 0.20
+    finish = n - 1
+    for i in range(impact + 1, n):
+        if combined_speed[i] < finish_threshold:
+            finish = i
+            break
+
+    # Sanity: enforce ordering with at least 1-frame gaps where possible.
+    if top <= address_end:
+        top = min(address_end + 1, n - 1)
+    if impact <= top:
+        impact = min(top + 1, n - 1)
+    if finish < impact:
+        finish = min(impact + 1, n - 1)
 
     return Phases(
         address_end=int(address_end),
@@ -119,31 +157,19 @@ def detect_phases(landmarks: np.ndarray, fps: float) -> Phases:
     )
 
 
+def detect_handedness(landmarks: np.ndarray) -> Handedness:
+    """Whole-clip handedness fallback for callers that don't have phases yet.
+
+    Prefer the swing-window-restricted version inside `detect_phases` — using
+    the whole clip is biased by any pre/post-swing motion.
+    """
+    lw_path = _total_path_length(landmarks[:, LEFT_WRIST, :2])
+    rw_path = _total_path_length(landmarks[:, RIGHT_WRIST, :2])
+    return "right" if rw_path >= lw_path else "left"
+
+
 def _total_path_length(xy: np.ndarray) -> float:
+    if xy.shape[0] < 2:
+        return 0.0
     diffs = np.diff(xy, axis=0)
     return float(np.linalg.norm(diffs, axis=-1).sum())
-
-
-def _find_takeaway_start(speed: np.ndarray) -> int:
-    """First frame where speed exceeds 25% of its eventual peak."""
-    if len(speed) == 0:
-        return 0
-    peak = float(np.max(speed))
-    threshold = max(peak * 0.10, 1e-6)
-    above = np.where(speed > threshold)[0]
-    if len(above) == 0:
-        return 0
-    return int(above[0])
-
-
-def _find_finish(speed: np.ndarray, impact: int) -> int:
-    """Last frame within 1.5s of impact OR where speed dips below 20% peak."""
-    if impact >= len(speed) - 1:
-        return len(speed) - 1
-    peak = float(np.max(speed[impact:]))
-    threshold = max(peak * 0.20, 1e-6)
-    after = speed[impact:]
-    below = np.where(after < threshold)[0]
-    if len(below) == 0:
-        return len(speed) - 1
-    return int(impact + below[0])
