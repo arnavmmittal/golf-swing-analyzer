@@ -10,6 +10,8 @@ Output is a same-resolution video with:
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import cv2
@@ -45,7 +47,14 @@ def render_annotated(
     phases: Phases,
     fps: float,
 ) -> Path:
-    """Render an annotated MP4 alongside the user's input video."""
+    """Render an annotated MP4 alongside the user's input video.
+
+    Two-stage encode: OpenCV writes intermediate frames with the mp4v codec
+    (works everywhere), then ffmpeg re-encodes to H.264 with +faststart so
+    the moov atom is at the front and browsers can begin playback before
+    the whole file finishes downloading. mp4v alone produces files Safari
+    won't decode and that are 10x larger than they need to be.
+    """
     video_path = str(video_path)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -56,8 +65,10 @@ def render_annotated(
 
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    intermediate_path = output_path.with_suffix(".raw.mp4")
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+    writer = cv2.VideoWriter(str(intermediate_path), fourcc, fps, (width, height))
 
     try:
         frame_idx = 0
@@ -77,7 +88,33 @@ def render_annotated(
         cap.release()
         writer.release()
 
+    _transcode_to_browser_h264(intermediate_path, output_path)
+    intermediate_path.unlink(missing_ok=True)
     return output_path
+
+
+def _transcode_to_browser_h264(src: Path, dst: Path) -> None:
+    """Re-encode `src` to H.264 yuv420p with faststart for in-browser playback.
+
+    Falls back to a plain rename if ffmpeg isn't available — better to serve
+    the mp4v file than fail the whole pipeline.
+    """
+    if shutil.which("ffmpeg") is None:
+        src.replace(dst)
+        return
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(src),
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",   # required for Safari + most embedded players
+        "-preset", "veryfast",
+        "-crf", "23",            # visually lossless-ish, ~10x smaller than mp4v
+        "-movflags", "+faststart",
+        "-an",                   # no audio in our render
+        str(dst),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
 
 
 def _draw_skeleton(frame: np.ndarray, points: np.ndarray, w: int, h: int) -> None:
