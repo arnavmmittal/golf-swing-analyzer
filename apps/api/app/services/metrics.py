@@ -81,7 +81,18 @@ class Metrics:
 
 
 def compute_metrics(landmarks: np.ndarray, phases: Phases, fps: float) -> Metrics:
-    """Compute all eight metrics. `landmarks` shape: (T, 33, 4)."""
+    """Compute all eight metrics. `landmarks` shape: (T, 33, 4).
+
+    Should be called with WORLD landmarks (metric 3D coordinates from
+    MediaPipe's pose_world_landmarks), not image landmarks.
+
+    We smooth the landmark time series with a Savitzky-Golay filter before
+    extracting single-frame readings, because pose detection during the
+    high-velocity downswing produces frame-to-frame jitter that would
+    dominate single-frame metric readings otherwise.
+    """
+    landmarks = _smooth_landmarks(landmarks)
+
     is_rh = phases.handedness == "right"
     lead_shoulder = LEFT_SHOULDER if is_rh else RIGHT_SHOULDER
     trail_shoulder = RIGHT_SHOULDER if is_rh else LEFT_SHOULDER
@@ -104,6 +115,23 @@ def compute_metrics(landmarks: np.ndarray, phases: Phases, fps: float) -> Metric
             landmarks, phases, lead_shoulder, lead_wrist, lead_hip, trail_hip
         ),
     )
+
+
+def _smooth_landmarks(lm: np.ndarray) -> np.ndarray:
+    """Savitzky-Golay smoothing across the time axis for each landmark coord.
+
+    Reduces frame-to-frame jitter in pose detection at high-velocity frames,
+    which would otherwise corrupt single-frame readings used by impact-time
+    metrics (shaft lean, hip rotation at impact, etc.).
+    """
+    if lm.shape[0] < 7:
+        return lm
+    out = lm.copy()
+    # Smooth x, y, z (skip visibility column).
+    flat = out[:, :, :3].reshape(out.shape[0], -1)
+    smoothed = smooth_savgol(flat, window=7, order=2)
+    out[:, :, :3] = smoothed.reshape(out.shape[0], out.shape[1], 3)
+    return out
 
 
 def _tempo_ratio(phases: Phases) -> float:

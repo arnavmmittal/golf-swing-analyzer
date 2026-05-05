@@ -92,9 +92,12 @@ def detect_phases(
         (lw_speed + rw_speed)[:, None], window=9, order=2
     )[:, 0]
 
-    # 1. Impact: peak combined wrist speed.
-    impact = int(np.argmax(combined_speed))
-    peak_speed = float(combined_speed[impact])
+    # 1a. Approximate impact: peak combined wrist speed in image coords.
+    # The velocity peak typically lands 3-5 frames AFTER ball contact —
+    # we'll refine this once handedness is known.
+    impact_approx = int(np.argmax(combined_speed))
+    peak_speed = float(combined_speed[impact_approx])
+    impact = impact_approx
 
     # 2. Handedness: use override if supplied, else multi-signal vote.
     swing_back = int(2.0 * fps)
@@ -108,6 +111,19 @@ def detect_phases(
             impact=impact,
         )
     lead_wrist_idx = LEFT_WRIST if handedness == "right" else RIGHT_WRIST
+
+    # 1b. Refine impact: in world coords, the lead wrist reaches its lowest
+    # point (most negative Y, closest to ground) at ball contact. The
+    # velocity peak detected above lands 3-5 frames AFTER that, in the
+    # follow-through. We search a small window around the velocity peak.
+    if world_landmarks is not None:
+        lookback = max(int(0.10 * fps), 3)  # ~6 frames at 60fps
+        lookahead = max(int(0.05 * fps), 1)
+        lo = max(0, impact_approx - lookback)
+        hi = min(n, impact_approx + lookahead + 1)
+        wrist_y_world = world_landmarks[lo:hi, lead_wrist_idx, 1]
+        # In world coords Y is up — most negative = lowest.
+        impact = lo + int(np.argmin(wrist_y_world))
 
     # 3. Top: lead wrist's highest position (smallest y) in the
     # backswing window — typically 0.6-1.5s before impact for a real swing.

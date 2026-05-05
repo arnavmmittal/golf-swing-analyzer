@@ -64,21 +64,20 @@ def test_x_factor_3d_recovers_45_degrees_from_dtl_view():
     The 2D-only implementation read this as ~0° because the rotation axis
     is aligned with the camera's view direction in DTL footage.
     """
-    lm = _empty_lm(10)
+    # 30 frames of static rotated pose so the time smoother (window=7) is a no-op.
+    lm = _empty_lm(30)
     _set_static_body(lm)
 
-    # At top frame (frame 5): rotate shoulders 90° around vertical, hips 45°.
-    top = 5
-    # Shoulders rotated 90°: now span along x-axis instead of z-axis.
-    lm[top, LEFT_SHOULDER, :3] = (-0.10, 0.30, 0.0)   # was at (0, .30, +.10)
-    lm[top, RIGHT_SHOULDER, :3] = (0.10, 0.30, 0.0)   # was at (0, .30, -.10)
-    # Hips rotated 45°: midway between original and 90°
+    top = 15
+    # Shoulders rotated 90°, hips 45° — applied to ALL frames.
+    lm[:, LEFT_SHOULDER, :3] = (-0.10, 0.30, 0.0)
+    lm[:, RIGHT_SHOULDER, :3] = (0.10, 0.30, 0.0)
     sin45 = math.sin(math.radians(45))
     cos45 = math.cos(math.radians(45))
-    lm[top, LEFT_HIP, :3] = (-0.08 * sin45, 0.55, 0.08 * cos45)
-    lm[top, RIGHT_HIP, :3] = (0.08 * sin45, 0.55, -0.08 * cos45)
+    lm[:, LEFT_HIP, :3] = (-0.08 * sin45, 0.55, 0.08 * cos45)
+    lm[:, RIGHT_HIP, :3] = (0.08 * sin45, 0.55, -0.08 * cos45)
 
-    phases = Phases(address_end=2, top=top, impact=8, finish=9, handedness="right")
+    phases = Phases(address_end=5, top=top, impact=25, finish=29, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
 
     # Expect ~45° X-Factor (90 shoulder - 45 hip).
@@ -86,17 +85,20 @@ def test_x_factor_3d_recovers_45_degrees_from_dtl_view():
 
 
 def test_hip_open_at_impact_recovers_40_degrees():
-    """40° of hip rotation past square at impact reads as 40°, not 0°."""
-    lm = _empty_lm(10)
+    """40° of hip rotation past square at impact reads as 40°, not 0°.
+
+    Uses 40 frames so address (frame 5) and impact (frame 30) are well
+    apart — the time smoother (window=7) sees a continuous regime at each.
+    """
+    lm = _empty_lm(40)
     _set_static_body(lm)
-    impact = 8
     sin40 = math.sin(math.radians(40))
     cos40 = math.cos(math.radians(40))
-    # Rotate hips at impact by 40° around vertical.
-    lm[impact, LEFT_HIP, :3] = (-0.08 * sin40, 0.55, 0.08 * cos40)
-    lm[impact, RIGHT_HIP, :3] = (0.08 * sin40, 0.55, -0.08 * cos40)
+    # Frames 15-39: hips rotated 40° (covers the impact frame).
+    lm[15:, LEFT_HIP, :3] = (-0.08 * sin40, 0.55, 0.08 * cos40)
+    lm[15:, RIGHT_HIP, :3] = (0.08 * sin40, 0.55, -0.08 * cos40)
 
-    phases = Phases(address_end=2, top=5, impact=impact, finish=9, handedness="right")
+    phases = Phases(address_end=5, top=12, impact=30, finish=39, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
     assert 35.0 <= metrics.hip_open_impact <= 45.0, (
         f"hip_open = {metrics.hip_open_impact}"
@@ -105,15 +107,15 @@ def test_hip_open_at_impact_recovers_40_degrees():
 
 def test_lead_arm_at_top_straight_arm_reads_near_180():
     """A perfectly straight lead arm at the top reads ~180° joint angle."""
-    lm = _empty_lm(10)
+    lm = _empty_lm(20)
     _set_static_body(lm)
-    top = 5
-    # Place lead shoulder, elbow, wrist on a straight line (collinear).
-    lm[top, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
-    lm[top, LEFT_ELBOW, :3] = (0.10, 0.30, 0.10)
-    lm[top, LEFT_WRIST, :3] = (0.20, 0.30, 0.10)
+    top = 10
+    # Place lead shoulder, elbow, wrist on a straight line — across all frames.
+    lm[:, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
+    lm[:, LEFT_ELBOW, :3] = (0.10, 0.30, 0.10)
+    lm[:, LEFT_WRIST, :3] = (0.20, 0.30, 0.10)
 
-    phases = Phases(address_end=2, top=top, impact=8, finish=9, handedness="right")
+    phases = Phases(address_end=4, top=top, impact=15, finish=19, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
     assert metrics.lead_arm_top >= 175.0, f"lead_arm_top = {metrics.lead_arm_top}"
 
@@ -123,9 +125,11 @@ def test_lead_arm_at_top_right_angle_reads_90():
     lm = _empty_lm(10)
     _set_static_body(lm)
     top = 5
-    lm[top, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.0)
-    lm[top, LEFT_ELBOW, :3] = (0.10, 0.30, 0.0)
-    lm[top, LEFT_WRIST, :3] = (0.10, 0.20, 0.0)
+    # Broadcast the test pose across all frames so the time-axis smoother
+    # (window=7) doesn't dilute the values at the target frame.
+    lm[:, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.0)
+    lm[:, LEFT_ELBOW, :3] = (0.10, 0.30, 0.0)
+    lm[:, LEFT_WRIST, :3] = (0.10, 0.20, 0.0)
 
     phases = Phases(address_end=2, top=top, impact=8, finish=9, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
@@ -161,9 +165,9 @@ def test_weight_transfer_3d_at_lead_foot_reads_one():
     lm = _empty_lm(10)
     _set_static_body(lm)
     impact = 8
-    # Move both hips on top of the lead ankle.
-    lm[impact, LEFT_HIP, :3] = lm[impact, LEFT_ANKLE, :3] + np.array([0, -0.4, 0])
-    lm[impact, RIGHT_HIP, :3] = lm[impact, LEFT_ANKLE, :3] + np.array([0, -0.4, 0])
+    # Broadcast hips on top of the lead ankle across all frames (smoother-safe).
+    lm[:, LEFT_HIP, :3] = lm[0, LEFT_ANKLE, :3] + np.array([0, -0.4, 0])
+    lm[:, RIGHT_HIP, :3] = lm[0, LEFT_ANKLE, :3] + np.array([0, -0.4, 0])
 
     phases = Phases(address_end=2, top=5, impact=impact, finish=9, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
@@ -174,8 +178,8 @@ def test_weight_transfer_3d_at_trail_foot_reads_zero():
     lm = _empty_lm(10)
     _set_static_body(lm)
     impact = 8
-    lm[impact, LEFT_HIP, :3] = lm[impact, RIGHT_ANKLE, :3] + np.array([0, -0.4, 0])
-    lm[impact, RIGHT_HIP, :3] = lm[impact, RIGHT_ANKLE, :3] + np.array([0, -0.4, 0])
+    lm[:, LEFT_HIP, :3] = lm[0, RIGHT_ANKLE, :3] + np.array([0, -0.4, 0])
+    lm[:, RIGHT_HIP, :3] = lm[0, RIGHT_ANKLE, :3] + np.array([0, -0.4, 0])
 
     phases = Phases(address_end=2, top=5, impact=impact, finish=9, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
@@ -188,10 +192,10 @@ def test_shaft_lean_positive_when_arm_leans_toward_target():
     _set_static_body(lm)
     impact = 8
 
-    # Lead shoulder at (0, 0.30, +0.10). Wrist below and toward target (+z).
-    lm[impact, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
-    lm[impact, LEFT_WRIST, :3] = (0.0, 0.65, 0.18)  # slanted +z (toward target)
-    # Hip directions stable around address.
+    # World-coord convention: y is UP, so the wrist below the shoulder has
+    # a SMALLER y. Lead direction is +z (toward target).
+    lm[:, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
+    lm[:, LEFT_WRIST, :3] = (0.0, -0.05, 0.18)  # below + toward target = positive lean
     phases = Phases(address_end=0, top=5, impact=impact, finish=9, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
     assert metrics.shaft_lean_impact > 0, f"shaft_lean = {metrics.shaft_lean_impact}"
@@ -201,8 +205,8 @@ def test_shaft_lean_negative_when_arm_lags_behind_target():
     lm = _empty_lm(10)
     _set_static_body(lm)
     impact = 8
-    lm[impact, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
-    lm[impact, LEFT_WRIST, :3] = (0.0, 0.65, 0.02)  # slanted -z (away from target)
+    lm[:, LEFT_SHOULDER, :3] = (0.0, 0.30, 0.10)
+    lm[:, LEFT_WRIST, :3] = (0.0, -0.05, 0.02)  # below + away from target
     phases = Phases(address_end=0, top=5, impact=impact, finish=9, handedness="right")
     metrics = compute_metrics(lm, phases, fps=60.0)
     assert metrics.shaft_lean_impact < 0, f"shaft_lean = {metrics.shaft_lean_impact}"
