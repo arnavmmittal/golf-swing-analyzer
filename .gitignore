@@ -29,6 +29,7 @@ Thumbs.db
 # Local artifacts
 uploads/
 output/
+tsconfig.tsbuildinfo
 *.mp4
 !docs/**/*.mp4
 *.mov
