@@ -4,6 +4,17 @@ Reads a video file, runs pose detection on every frame, returns the time
 series of landmarks. We use `model_complexity=2` (the heaviest BlazePose
 model) because golf swings move fast and the lighter models drop frames at
 the top and impact, where accuracy matters most.
+
+We extract BOTH:
+  - `points` (image landmarks): x, y normalized to image dims; z is a noisy
+    learned depth estimate. Used for the visual renderer (skeleton overlay).
+  - `world_points`: metric 3D coordinates in meters, with the origin at
+    the hip center and Y-axis aligned with gravity (Y-up convention from
+    MediaPipe). Used for biomechanical metric extraction.
+
+The image-coord z is roughly 5-10x noisier than world-coord z. Using
+`pose_world_landmarks` is essential for any metric that depends on real
+3D geometry (X-Factor, hip rotation, shaft lean, etc.).
 """
 
 from __future__ import annotations
@@ -57,13 +68,18 @@ def extract_pose(
             result = pose.process(frame_rgb)
 
             points = np.zeros((NUM_LANDMARKS, 4), dtype=np.float32)
+            world_points = np.zeros((NUM_LANDMARKS, 4), dtype=np.float32)
             if result.pose_landmarks is not None:
                 for i, lm in enumerate(result.pose_landmarks.landmark):
                     points[i] = (lm.x, lm.y, lm.z, lm.visibility)
+            if result.pose_world_landmarks is not None:
+                for i, lm in enumerate(result.pose_world_landmarks.landmark):
+                    world_points[i] = (lm.x, lm.y, lm.z, lm.visibility)
 
             frames.append(
                 FrameLandmarks(
                     points=points,
+                    world_points=world_points,
                     frame_index=frame_idx,
                     timestamp_s=frame_idx / fps,
                 )
@@ -84,5 +100,10 @@ def extract_pose(
 
 
 def stack_landmarks(frames: list[FrameLandmarks]) -> np.ndarray:
-    """Stack per-frame landmarks into shape (T, 33, 4)."""
+    """Stack per-frame image landmarks into shape (T, 33, 4)."""
     return np.stack([f.points for f in frames], axis=0)
+
+
+def stack_world_landmarks(frames: list[FrameLandmarks]) -> np.ndarray:
+    """Stack per-frame world (metric 3D) landmarks into shape (T, 33, 4)."""
+    return np.stack([f.world_points for f in frames], axis=0)

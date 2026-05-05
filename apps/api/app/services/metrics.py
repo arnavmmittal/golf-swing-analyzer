@@ -11,16 +11,18 @@ We compute eight metrics that together describe a swing's quality:
   7. weight_transfer   COM lateral travel toward lead foot      (ratio, 3D)
   8. shaft_lean_impact lead arm vs vertical at impact           (deg, 3D)
 
-All rotational metrics use the 3D (x, y, z) landmarks MediaPipe provides —
-not just the 2D image projection. This is critical for down-the-line
-footage where the rotation axes (hip, shoulder) are roughly aligned with
-the camera's view direction. A 2D projection of those rotations
-foreshortens them by ~5x and gives uselessly low readings.
+All rotational metrics use MediaPipe's `pose_world_landmarks` — metric 3D
+coordinates in meters with the origin at the hip center and Y-axis aligned
+with gravity (Y-up convention). The image-coord landmarks have a noisy
+learned z that gives spurious readings on rotation metrics; world
+landmarks are calibrated and ~5-10x more stable.
 
-We assume MediaPipe's coordinate convention:
-  x: image-x normalized to [0,1] (target direction depends on camera setup)
-  y: image-y normalized to [0,1] (gravity axis, larger y = lower in frame)
-  z: depth from hip midpoint, smaller = closer to camera
+World-coord conventions:
+  x: subject's right direction (meters)
+  y: up (gravity direction = -Y, meters)
+  z: out of screen toward viewer (meters)
+
+The "horizontal plane" for rotational metrics is the xz plane.
 """
 
 from __future__ import annotations
@@ -174,9 +176,8 @@ def _spine_stability(
     hip_mid = (seg[:, lh, :3] + seg[:, rh, :3]) / 2
     spine_vec = shoulder_mid - hip_mid  # shape (T, 3)
 
-    # Spine should point upward (negative y in image coords). Tilt = angle
-    # between spine vector and the up direction.
-    up = np.array([0.0, -1.0, 0.0])
+    # In world coords, up is +Y. Tilt = angle from the up direction.
+    up = np.array([0.0, 1.0, 0.0])
     tilts = angle_between(spine_vec, up)  # shape (T,)
     if len(tilts) >= 5:
         tilts = smooth_savgol(tilts[:, None], window=5, order=2)[:, 0]
@@ -303,8 +304,8 @@ def _shaft_lean_at_impact(
     wr = lm[impact, lead_wrist, :3]
     arm_vec = wr - sh
 
-    # Vertical down direction (gravity in MediaPipe coords: image-y grows downward).
-    down = np.array([0.0, 1.0, 0.0])
+    # In world coords, gravity-down is -Y.
+    down = np.array([0.0, -1.0, 0.0])
     raw_angle = float(angle_between(arm_vec, down))
 
     # Lead direction at address: from trail hip to lead hip.

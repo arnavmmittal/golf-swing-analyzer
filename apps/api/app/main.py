@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from app.services.coaching import generate_feedback
 from app.services.metrics import compute_metrics
 from app.services.phases import detect_phases
-from app.services.pose import extract_pose, stack_landmarks
+from app.services.pose import extract_pose, stack_landmarks, stack_world_landmarks
 from app.services.render import render_annotated
 from app.services.scoring import overall_score, score_metrics
 
@@ -82,12 +82,18 @@ async def analyze(
             )
 
         landmarks = stack_landmarks(frames)
+        world_landmarks = stack_world_landmarks(frames)
         logger.info("Detecting phases for %s (handedness=%s)", analysis_id, handedness)
         override = None if handedness == "auto" else handedness
-        phases = detect_phases(landmarks, fps=meta["fps"], handedness_override=override)
+        phases = detect_phases(
+            landmarks,
+            fps=meta["fps"],
+            handedness_override=override,
+            world_landmarks=world_landmarks,
+        )
 
         logger.info("Computing metrics for %s", analysis_id)
-        metrics = compute_metrics(landmarks, phases, fps=meta["fps"])
+        metrics = compute_metrics(world_landmarks, phases, fps=meta["fps"])
         scores = score_metrics(metrics)
         overall = overall_score(scores)
 

@@ -55,12 +55,12 @@
     },
     "lead_arm_top": {
       "label": "Lead arm angle at top of backswing",
-      "ideal_min": 80,
-      "ideal_max": 95,
-      "acceptable_min": 70,
-      "acceptable_max": 105,
+      "ideal_min": 165,
+      "ideal_max": 180,
+      "acceptable_min": 150,
+      "acceptable_max": 180,
       "direction": "target",
-      "units": "deg",
+      "units": "deg (3D joint angle, 180 = straight)",
       "fault_low": "Bent lead arm — collapses width and shortens swing arc",
       "fault_high": "Hyperextended (rare); usually a measurement artifact"
     },

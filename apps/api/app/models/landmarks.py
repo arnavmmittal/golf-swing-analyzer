@@ -52,12 +52,17 @@ NUM_LANDMARKS = 33
 class FrameLandmarks:
     """Landmarks for a single frame.
 
-    `points` is shape (33, 4) where columns are (x, y, z, visibility).
-    Coordinates are normalized to image dimensions (0-1) for x,y and to
-    hip width for z. Visibility is MediaPipe's confidence score 0-1.
+    `points`: image landmarks, shape (33, 4), columns (x, y, z, visibility).
+        x, y are normalized to image dimensions (0-1); z is a learned depth
+        estimate scaled to image x. Used for visual rendering.
+
+    `world_points`: world landmarks, shape (33, 4), columns (x, y, z, visibility).
+        Metric 3D coordinates in meters, origin at hip center, Y-axis up
+        (against gravity). Used for biomechanical metric extraction.
     """
 
     points: np.ndarray
+    world_points: np.ndarray
     frame_index: int
     timestamp_s: float
 

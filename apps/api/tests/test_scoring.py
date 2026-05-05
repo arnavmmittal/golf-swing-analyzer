@@ -16,7 +16,7 @@ def _perfect_metrics() -> Metrics:
         x_factor=47.0,
         hip_open_impact=40.0,
         spine_stability=2.0,
-        lead_arm_top=88.0,
+        lead_arm_top=172.0,   # nearly straight = tour standard in 3D
         head_sway=0.03,
         weight_transfer=0.82,
         shaft_lean_impact=7.0,
@@ -25,14 +25,14 @@ def _perfect_metrics() -> Metrics:
 
 def _amateur_metrics() -> Metrics:
     return Metrics(
-        tempo_ratio=4.5,        # rushed downswing
-        x_factor=22.0,          # under-rotated torso
-        hip_open_impact=15.0,   # hips not clearing
-        spine_stability=6.0,    # posture changes
-        lead_arm_top=60.0,      # collapsed lead arm
-        head_sway=0.18,         # sliding off the ball
-        weight_transfer=0.45,   # hanging back
-        shaft_lean_impact=-2.0, # scooping
+        tempo_ratio=4.5,         # rushed downswing
+        x_factor=22.0,           # under-rotated torso
+        hip_open_impact=15.0,    # hips not clearing
+        spine_stability=6.0,     # posture changes
+        lead_arm_top=130.0,      # collapsed lead arm (3D joint angle)
+        head_sway=0.18,          # sliding off the ball
+        weight_transfer=0.45,    # hanging back
+        shaft_lean_impact=-2.0,  # scooping
     )
 
 

@@ -63,10 +63,16 @@ def detect_phases(
     landmarks: np.ndarray,
     fps: float,
     handedness_override: Handedness | None = None,
+    world_landmarks: np.ndarray | None = None,
 ) -> Phases:
     """Split swing into Address / Takeaway / Top / Impact / Finish.
 
-    `landmarks` shape: (T, 33, 4). Returns frame indices.
+    `landmarks` shape: (T, 33, 4) — image-coord landmarks. Used for wrist
+    velocity profile (only x,y matters here, image-relative units are fine).
+
+    `world_landmarks` shape: (T, 33, 4) — metric world coordinates. Used
+    for 3D handedness detection signals. Falls back to image landmarks
+    if not provided.
 
     `handedness_override`: skip auto-detection and use this handedness.
     Recommended whenever the user knows their handedness — auto-detection
@@ -97,7 +103,9 @@ def detect_phases(
         handedness: Handedness = handedness_override
     else:
         handedness = _detect_handedness_from_signals(
-            landmarks, swing_start=swing_start, impact=impact
+            world_landmarks if world_landmarks is not None else landmarks,
+            swing_start=swing_start,
+            impact=impact,
         )
     lead_wrist_idx = LEFT_WRIST if handedness == "right" else RIGHT_WRIST
 
