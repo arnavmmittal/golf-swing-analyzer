@@ -1,10 +1,12 @@
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-python-multipart==0.0.12
-mediapipe==0.10.18
-opencv-python-headless==4.10.0.84
-numpy==1.26.4
-scipy==1.14.1
-anthropic==0.39.0
-python-dotenv==1.0.1
-pydantic==2.9.2
+fastapi>=0.115.0,<0.130
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.12
+# Pinned upper bound: 0.10.30+ removed the legacy mp.solutions namespace
+# on macOS arm64 wheels. Our pose.py uses mp.solutions.pose.Pose.
+mediapipe>=0.10.18,<0.10.30
+opencv-python-headless>=4.10.0,<5
+numpy>=1.26.4,<2
+scipy>=1.13.1,<1.14
+anthropic>=0.39.0
+python-dotenv>=1.0.1
+pydantic>=2.9.2
