@@ -3,12 +3,15 @@
 import { useRef, useState } from "react";
 import clsx from "clsx";
 
+export type Handedness = "auto" | "right" | "left";
+
 type Props = {
-  onUpload: (file: File) => void;
+  onUpload: (file: File, handedness: Handedness) => void;
   uploading: boolean;
 };
 
 export function UploadCard({ onUpload, uploading }: Props) {
+  const [handedness, setHandedness] = useState<Handedness>("auto");
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +26,7 @@ export function UploadCard({ onUpload, uploading }: Props) {
       return;
     }
     setError(null);
-    onUpload(file);
+    onUpload(file, handedness);
   }
 
   return (
@@ -78,6 +81,24 @@ export function UploadCard({ onUpload, uploading }: Props) {
             if (file) handleFile(file);
           }}
         />
+        <div className="mt-6 flex items-center justify-center gap-2 text-sm">
+          <span className="text-fairway-700/70 mr-1">I am</span>
+          {(["auto", "right", "left"] as const).map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => setHandedness(opt)}
+              className={clsx(
+                "px-3 py-1 rounded-full border transition",
+                handedness === opt
+                  ? "bg-fairway-700 text-white border-fairway-700"
+                  : "bg-white border-fairway-500/30 text-fairway-700 hover:border-fairway-500/60",
+              )}
+            >
+              {opt === "auto" ? "auto-detect" : opt === "right" ? "right-handed" : "left-handed"}
+            </button>
+          ))}
+        </div>
         {error && (
           <p className="mt-4 text-sm text-red-600">{error}</p>
         )}

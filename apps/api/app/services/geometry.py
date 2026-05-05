@@ -27,6 +27,33 @@ def signed_2d_angle(v: np.ndarray) -> np.ndarray:
     return np.degrees(np.arctan2(v[..., 1], v[..., 0]))
 
 
+def signed_xz_angle(v: np.ndarray) -> np.ndarray:
+    """Signed angle of a 3D vector projected onto the xz plane (perpendicular to vertical).
+
+    Useful for measuring rotations around the gravity axis — body rotations
+    like X-Factor and hip rotation at impact.
+
+    `v` shape: (..., 3). Returns degrees in (-180, 180].
+    """
+    return np.degrees(np.arctan2(v[..., 2], v[..., 0]))
+
+
+def signed_angle_diff_deg(a: float, b: float) -> float:
+    """Signed angle difference a - b, wrapped to (-180, 180]."""
+    diff = a - b
+    while diff > 180:
+        diff -= 360
+    while diff <= -180:
+        diff += 360
+    return diff
+
+
+def project_onto(v: np.ndarray, axis: np.ndarray) -> np.ndarray:
+    """Scalar projection of `v` onto unit vector `axis`."""
+    axis_norm = _normalize(axis)
+    return np.sum(v * axis_norm, axis=-1)
+
+
 def smooth_savgol(series: np.ndarray, window: int = 7, order: int = 2) -> np.ndarray:
     """Savitzky-Golay smoothing across the time axis.
 

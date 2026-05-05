@@ -11,10 +11,12 @@ from __future__ import annotations
 import numpy as np
 
 from app.models.landmarks import (
+    LEFT_ANKLE,
     LEFT_HIP,
     LEFT_SHOULDER,
     LEFT_WRIST,
     NUM_LANDMARKS,
+    RIGHT_ANKLE,
     RIGHT_HIP,
     RIGHT_SHOULDER,
     RIGHT_WRIST,
@@ -48,10 +50,13 @@ def _build_synthetic_swing(
     lm[:, :, 3] = 0.9
 
     # Static body parts for a setup-position right-handed golfer.
-    lm[:, LEFT_SHOULDER, :2] = (0.45, 0.35)
-    lm[:, RIGHT_SHOULDER, :2] = (0.55, 0.35)
-    lm[:, LEFT_HIP, :2] = (0.46, 0.55)
-    lm[:, RIGHT_HIP, :2] = (0.54, 0.55)
+    # Z-spread encodes DTL geometry: lead (left) side farther from camera.
+    lm[:, LEFT_SHOULDER, :3] = (0.45, 0.35, 0.10)
+    lm[:, RIGHT_SHOULDER, :3] = (0.55, 0.35, -0.10)
+    lm[:, LEFT_HIP, :3] = (0.46, 0.55, 0.08)
+    lm[:, RIGHT_HIP, :3] = (0.54, 0.55, -0.08)
+    lm[:, LEFT_ANKLE, :3] = (0.46, 0.95, 0.10)
+    lm[:, RIGHT_ANKLE, :3] = (0.54, 0.95, -0.10)
 
     # Wrists at address position.
     address_wrist_xy = np.array([0.50, 0.70])

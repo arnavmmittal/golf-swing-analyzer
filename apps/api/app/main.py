@@ -17,7 +17,9 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from typing import Literal
+
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
@@ -55,7 +57,10 @@ def health() -> dict:
 
 
 @app.post("/analyze")
-async def analyze(video: UploadFile = File(...)) -> JSONResponse:
+async def analyze(
+    video: UploadFile = File(...),
+    handedness: Literal["right", "left", "auto"] = Form("auto"),
+) -> JSONResponse:
     suffix = Path(video.filename or "upload.mp4").suffix.lower()
     if suffix not in ALLOWED_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {suffix}")
@@ -77,8 +82,9 @@ async def analyze(video: UploadFile = File(...)) -> JSONResponse:
             )
 
         landmarks = stack_landmarks(frames)
-        logger.info("Detecting phases for %s", analysis_id)
-        phases = detect_phases(landmarks, fps=meta["fps"])
+        logger.info("Detecting phases for %s (handedness=%s)", analysis_id, handedness)
+        override = None if handedness == "auto" else handedness
+        phases = detect_phases(landmarks, fps=meta["fps"], handedness_override=override)
 
         logger.info("Computing metrics for %s", analysis_id)
         metrics = compute_metrics(landmarks, phases, fps=meta["fps"])

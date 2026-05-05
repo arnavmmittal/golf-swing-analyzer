@@ -29,8 +29,10 @@ from typing import Literal
 import numpy as np
 
 from app.models.landmarks import (
+    LEFT_ANKLE,
     LEFT_SHOULDER,
     LEFT_WRIST,
+    RIGHT_ANKLE,
     RIGHT_SHOULDER,
     RIGHT_WRIST,
 )
@@ -57,10 +59,18 @@ class Phases:
         }
 
 
-def detect_phases(landmarks: np.ndarray, fps: float) -> Phases:
+def detect_phases(
+    landmarks: np.ndarray,
+    fps: float,
+    handedness_override: Handedness | None = None,
+) -> Phases:
     """Split swing into Address / Takeaway / Top / Impact / Finish.
 
     `landmarks` shape: (T, 33, 4). Returns frame indices.
+
+    `handedness_override`: skip auto-detection and use this handedness.
+    Recommended whenever the user knows their handedness — auto-detection
+    is geometric and has failure modes on unusual camera angles.
     """
     n = landmarks.shape[0]
     if n < 10:
@@ -80,12 +90,15 @@ def detect_phases(landmarks: np.ndarray, fps: float) -> Phases:
     impact = int(np.argmax(combined_speed))
     peak_speed = float(combined_speed[impact])
 
-    # 2. Handedness: from a window around impact, not the whole clip.
+    # 2. Handedness: use override if supplied, else multi-signal vote.
     swing_back = int(2.0 * fps)
     swing_start = max(0, impact - swing_back)
-    lw_path = _total_path_length(landmarks[swing_start : impact + 1, LEFT_WRIST, :2])
-    rw_path = _total_path_length(landmarks[swing_start : impact + 1, RIGHT_WRIST, :2])
-    handedness: Handedness = "right" if rw_path >= lw_path else "left"
+    if handedness_override is not None:
+        handedness: Handedness = handedness_override
+    else:
+        handedness = _detect_handedness_from_signals(
+            landmarks, swing_start=swing_start, impact=impact
+        )
     lead_wrist_idx = LEFT_WRIST if handedness == "right" else RIGHT_WRIST
 
     # 3. Top: lead wrist's highest position (smallest y) in the
@@ -160,12 +173,56 @@ def detect_phases(landmarks: np.ndarray, fps: float) -> Phases:
 def detect_handedness(landmarks: np.ndarray) -> Handedness:
     """Whole-clip handedness fallback for callers that don't have phases yet.
 
-    Prefer the swing-window-restricted version inside `detect_phases` — using
-    the whole clip is biased by any pre/post-swing motion.
+    Prefer the multi-signal version inside `detect_phases` (or supplying an
+    explicit override) — wrist path length is a poor signal because both
+    wrists are on the club and travel similar distances.
     """
     lw_path = _total_path_length(landmarks[:, LEFT_WRIST, :2])
     rw_path = _total_path_length(landmarks[:, RIGHT_WRIST, :2])
     return "right" if rw_path >= lw_path else "left"
+
+
+def _detect_handedness_from_signals(
+    landmarks: np.ndarray, *, swing_start: int, impact: int
+) -> Handedness:
+    """Multi-signal handedness detection using 3D landmarks.
+
+    Two signals voted:
+
+    1.  Foot z-coordinate at swing-start (i.e. address). For DTL footage,
+        the lead foot (which is on the target side) is FARTHER from the
+        camera than the trail foot. MediaPipe's z is signed depth from
+        the hip midpoint, smaller = closer to camera. So:
+            righty in DTL: z(left_ankle) > z(right_ankle)
+
+    2.  Wrist y-coordinate at address. The lead hand grips above the trail
+        hand on the club, so the lead wrist sits slightly higher (smaller
+        image y) than the trail wrist:
+            righty: y(left_wrist) < y(right_wrist)
+
+    Each signal votes "right" or "left"; we return the majority. If they
+    disagree we fall back to the foot signal because it's stronger when the
+    camera is in DTL position (the most useful angle for swing analysis).
+    """
+    # Use a small window centered just before the swing kicks off — this is
+    # roughly the address position, before any takeaway motion.
+    window_size = max(1, min(15, impact - swing_start))
+    addr_window = slice(swing_start, swing_start + window_size)
+
+    # Use median across the address window for robustness against single-frame
+    # pose detection errors.
+    z_left_ankle = float(np.median(landmarks[addr_window, LEFT_ANKLE, 2]))
+    z_right_ankle = float(np.median(landmarks[addr_window, RIGHT_ANKLE, 2]))
+    foot_vote: Handedness = "right" if z_left_ankle > z_right_ankle else "left"
+
+    y_left_wrist = float(np.median(landmarks[addr_window, LEFT_WRIST, 1]))
+    y_right_wrist = float(np.median(landmarks[addr_window, RIGHT_WRIST, 1]))
+    wrist_vote: Handedness = "right" if y_left_wrist < y_right_wrist else "left"
+
+    if foot_vote == wrist_vote:
+        return foot_vote
+    # Tie-break with the foot signal — more reliable from the standard DTL angle.
+    return foot_vote
 
 
 def _total_path_length(xy: np.ndarray) -> float:

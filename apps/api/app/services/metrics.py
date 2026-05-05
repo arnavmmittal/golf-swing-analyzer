@@ -3,15 +3,24 @@
 We compute eight metrics that together describe a swing's quality:
 
   1. tempo_ratio       backswing_duration / downswing_duration
-  2. x_factor          shoulder-hip rotation separation at top  (deg)
-  3. hip_open_impact   hip rotation past square at impact       (deg)
-  4. spine_stability   stdev of spine tilt across the swing     (deg)
-  5. lead_arm_top      lead-arm angle at top of backswing       (deg)
-  6. head_sway         lateral head displacement / shoulder W   (ratio)
-  7. weight_transfer   COM lateral travel toward lead foot      (ratio)
-  8. shaft_lean_impact lead arm vs vertical at impact           (deg, +ve = forward)
+  2. x_factor          shoulder-hip rotation separation at top  (deg, 3D)
+  3. hip_open_impact   hip rotation past square at impact       (deg, 3D)
+  4. spine_stability   stdev of spine tilt across the swing     (deg, 3D)
+  5. lead_arm_top      lead-arm angle at top of backswing       (deg, 3D)
+  6. head_sway         lateral head displacement / shoulder W   (ratio, body frame)
+  7. weight_transfer   COM lateral travel toward lead foot      (ratio, 3D)
+  8. shaft_lean_impact lead arm vs vertical at impact           (deg, 3D)
 
-All metrics are returned in a single dict keyed by metric name.
+All rotational metrics use the 3D (x, y, z) landmarks MediaPipe provides —
+not just the 2D image projection. This is critical for down-the-line
+footage where the rotation axes (hip, shoulder) are roughly aligned with
+the camera's view direction. A 2D projection of those rotations
+foreshortens them by ~5x and gives uselessly low readings.
+
+We assume MediaPipe's coordinate convention:
+  x: image-x normalized to [0,1] (target direction depends on camera setup)
+  y: image-y normalized to [0,1] (gravity axis, larger y = lower in frame)
+  z: depth from hip midpoint, smaller = closer to camera
 """
 
 from __future__ import annotations
@@ -34,7 +43,14 @@ from app.models.landmarks import (
     RIGHT_WRIST,
     midpoint,
 )
-from app.services.geometry import angle_between, joint_angle, signed_2d_angle, smooth_savgol
+from app.services.geometry import (
+    angle_between,
+    joint_angle,
+    project_onto,
+    signed_angle_diff_deg,
+    signed_xz_angle,
+    smooth_savgol,
+)
 from app.services.phases import Phases
 
 
@@ -82,7 +98,9 @@ def compute_metrics(landmarks: np.ndarray, phases: Phases, fps: float) -> Metric
         lead_arm_top=_lead_arm_at_top(landmarks, phases.top, lead_shoulder, lead_elbow, lead_wrist),
         head_sway=_head_sway(landmarks, phases, lead_shoulder, trail_shoulder),
         weight_transfer=_weight_transfer(landmarks, phases, lead_ankle, trail_ankle, lead_hip, trail_hip),
-        shaft_lean_impact=_shaft_lean_at_impact(landmarks, phases.impact, lead_shoulder, lead_wrist, is_rh=is_rh),
+        shaft_lean_impact=_shaft_lean_at_impact(
+            landmarks, phases, lead_shoulder, lead_wrist, lead_hip, trail_hip
+        ),
     )
 
 
@@ -100,14 +118,18 @@ def _x_factor(
     lh: int,
     rh: int,
 ) -> float:
-    """Shoulder-hip separation at top of backswing (degrees, absolute value)."""
-    shoulder_vec = lm[top_idx, rs, :2] - lm[top_idx, ls, :2]
-    hip_vec = lm[top_idx, rh, :2] - lm[top_idx, lh, :2]
-    shoulder_angle = signed_2d_angle(shoulder_vec)
-    hip_angle = signed_2d_angle(hip_vec)
-    diff = abs(shoulder_angle - hip_angle)
-    if diff > 180:
-        diff = 360 - diff
+    """Shoulder-hip separation at top of backswing (degrees).
+
+    Computed as the difference in xz-plane (horizontal) angle between the
+    shoulder line and the hip line. Using 3D landmarks means rotations that
+    tilt away from the camera (the dominant rotation axis in DTL footage)
+    are measured correctly instead of foreshortened to ~zero.
+    """
+    shoulder_vec = lm[top_idx, rs, :3] - lm[top_idx, ls, :3]
+    hip_vec = lm[top_idx, rh, :3] - lm[top_idx, lh, :3]
+    shoulder_angle = float(signed_xz_angle(shoulder_vec))
+    hip_angle = float(signed_xz_angle(hip_vec))
+    diff = abs(signed_angle_diff_deg(shoulder_angle, hip_angle))
     return float(diff)
 
 
@@ -117,17 +139,17 @@ def _hip_open_at_impact(
     lh: int,
     rh: int,
 ) -> float:
-    """How far the hips have rotated past square (address) at impact."""
+    """How far the hips have rotated past square (address) at impact (degrees).
+
+    Computed in 3D xz-plane so rotations facing toward/away from the camera
+    register correctly.
+    """
     addr = max(phases.address_end - 1, 0)
-    hip_addr = lm[addr, rh, :2] - lm[addr, lh, :2]
-    hip_imp = lm[phases.impact, rh, :2] - lm[phases.impact, lh, :2]
-    a_addr = signed_2d_angle(hip_addr)
-    a_imp = signed_2d_angle(hip_imp)
-    diff = a_imp - a_addr
-    while diff > 180:
-        diff -= 360
-    while diff < -180:
-        diff += 360
+    hip_addr = lm[addr, rh, :3] - lm[addr, lh, :3]
+    hip_imp = lm[phases.impact, rh, :3] - lm[phases.impact, lh, :3]
+    a_addr = float(signed_xz_angle(hip_addr))
+    a_imp = float(signed_xz_angle(hip_imp))
+    diff = signed_angle_diff_deg(a_imp, a_addr)
     return float(abs(diff))
 
 
@@ -139,16 +161,26 @@ def _spine_stability(
     lh: int,
     rh: int,
 ) -> float:
-    """Stdev (deg) of spine tilt across address through impact."""
+    """Stdev (deg) of spine tilt across address through impact.
+
+    Spine tilt is the angle between the spine vector (hip-mid → shoulder-mid)
+    and gravity (negative y). Computed in 3D so tilt forward/back is captured
+    in addition to side-to-side.
+    """
     a, b = phases.address_end, max(phases.impact + 1, phases.address_end + 2)
     b = min(b, lm.shape[0])
     seg = lm[a:b]
-    shoulder_mid = midpoint(seg[:, ls, :2], seg[:, rs, :2])
-    hip_mid = midpoint(seg[:, lh, :2], seg[:, rh, :2])
-    spine_vec = shoulder_mid - hip_mid
-    angles = signed_2d_angle(spine_vec)
-    angles = smooth_savgol(angles[:, None], window=5, order=2)[:, 0]
-    return float(np.std(angles))
+    shoulder_mid = (seg[:, ls, :3] + seg[:, rs, :3]) / 2
+    hip_mid = (seg[:, lh, :3] + seg[:, rh, :3]) / 2
+    spine_vec = shoulder_mid - hip_mid  # shape (T, 3)
+
+    # Spine should point upward (negative y in image coords). Tilt = angle
+    # between spine vector and the up direction.
+    up = np.array([0.0, -1.0, 0.0])
+    tilts = angle_between(spine_vec, up)  # shape (T,)
+    if len(tilts) >= 5:
+        tilts = smooth_savgol(tilts[:, None], window=5, order=2)[:, 0]
+    return float(np.std(tilts))
 
 
 def _lead_arm_at_top(
@@ -158,8 +190,19 @@ def _lead_arm_at_top(
     elbow: int,
     wrist: int,
 ) -> float:
-    """Lead-arm joint angle at the top of backswing (deg)."""
-    return float(joint_angle(lm[top_idx, shoulder, :2], lm[top_idx, elbow, :2], lm[top_idx, wrist, :2]))
+    """Lead-arm joint angle at the top of backswing (deg), 3D.
+
+    A straight arm is 180°. Tour pros hold their lead arm at 80-95° relative
+    to the shoulder-elbow-wrist hinge — this is the joint angle at the elbow
+    and a low value means a bent arm (collapsed swing arc).
+    """
+    return float(
+        joint_angle(
+            lm[top_idx, shoulder, :3],
+            lm[top_idx, elbow, :3],
+            lm[top_idx, wrist, :3],
+        )
+    )
 
 
 def _head_sway(
@@ -168,23 +211,41 @@ def _head_sway(
     ls: int,
     rs: int,
 ) -> float:
-    """Lateral head travel (max - min nose x) normalized by shoulder width.
+    """Lateral head travel relative to shoulder width — measured in body frame.
 
-    Below 0.05 is tour-level. Above 0.15 means the head is sliding off the ball.
+    The "lateral" direction is the shoulder-line at address. We project the
+    nose's displacement from its address position onto that axis and take
+    the peak-to-peak range. This is robust to camera angle: from any angle,
+    we measure body-relative motion.
 
-    We use the MEDIAN shoulder width across the swing window as the
-    denominator, not the value at a single frame. Single-frame normalization
-    is brittle: if pose detection is poor at the address frame, the
-    denominator can be near-zero and the ratio explodes.
+    The denominator is the median 3D shoulder width across the swing window
+    so a single bad pose-detection frame can't make the ratio explode.
     """
     a, b = phases.address_end, max(phases.impact + 1, phases.address_end + 2)
     b = min(b, lm.shape[0])
-    nose_x = lm[a:b, NOSE, 0]
-    shoulder_widths = np.linalg.norm(lm[a:b, rs, :2] - lm[a:b, ls, :2], axis=-1)
+
+    # Body lateral axis at address = shoulder line.
+    shoulder_axis_3d = lm[phases.address_end, rs, :3] - lm[phases.address_end, ls, :3]
+    norm = np.linalg.norm(shoulder_axis_3d)
+    if norm < 1e-6:
+        return 0.0
+    shoulder_axis_unit = shoulder_axis_3d / norm
+
+    # Nose displacement from address position, projected onto body lateral axis.
+    nose_addr = lm[phases.address_end, NOSE, :3]
+    nose_path = lm[a:b, NOSE, :3]
+    displacements = nose_path - nose_addr
+    projected = displacements @ shoulder_axis_unit  # shape (T,)
+
+    travel = float(projected.max() - projected.min())
+
+    # Median shoulder width across the swing window for the denominator.
+    shoulder_widths = np.linalg.norm(
+        lm[a:b, rs, :3] - lm[a:b, ls, :3], axis=-1
+    )
     shoulder_w = float(np.median(shoulder_widths))
     if shoulder_w < 1e-6:
         return 0.0
-    travel = float(nose_x.max() - nose_x.min())
     return travel / shoulder_w
 
 
@@ -196,46 +257,66 @@ def _weight_transfer(
     lead_hip: int,
     trail_hip: int,
 ) -> float:
-    """Approximate weight transfer.
+    """Weight transfer ratio at impact (0 = on trail foot, 1 = on lead foot).
 
-    Computes hip-midpoint x at impact relative to ankle midpoint. Closer to the
-    lead foot = more weight transferred. We return a 0..1 ratio.
+    Projects the hip-midpoint onto the line from trail ankle to lead ankle
+    in 3D. From any camera angle, this measures the body's center of mass
+    position relative to the stance line correctly.
     """
-    lead_x = float(lm[phases.impact, lead_ankle, 0])
-    trail_x = float(lm[phases.impact, trail_ankle, 0])
-    hip_mid_x = float(midpoint(lm[phases.impact, lead_hip, :2], lm[phases.impact, trail_hip, :2])[0])
-    span = abs(lead_x - trail_x)
-    if span < 1e-6:
+    impact = phases.impact
+    lead_a = lm[impact, lead_ankle, :3]
+    trail_a = lm[impact, trail_ankle, :3]
+    hip_mid = (lm[impact, lead_hip, :3] + lm[impact, trail_hip, :3]) / 2
+
+    stance_vec = lead_a - trail_a
+    stance_dist = float(np.linalg.norm(stance_vec))
+    if stance_dist < 1e-6:
         return 0.5
-    # Project hip_mid_x onto the lead-trail axis. 0 = on trail foot, 1 = on lead.
-    if lead_x < trail_x:
-        ratio = (trail_x - hip_mid_x) / span
-    else:
-        ratio = (hip_mid_x - trail_x) / span
+    stance_unit = stance_vec / stance_dist
+
+    # Project hip_mid relative to trail ankle onto the stance axis.
+    relative = hip_mid - trail_a
+    projection = float(np.dot(relative, stance_unit))
+    ratio = projection / stance_dist
     return float(np.clip(ratio, 0.0, 1.0))
 
 
 def _shaft_lean_at_impact(
     lm: np.ndarray,
-    impact_idx: int,
-    shoulder: int,
-    wrist: int,
-    *,
-    is_rh: bool,
+    phases: Phases,
+    lead_shoulder: int,
+    lead_wrist: int,
+    lead_hip: int,
+    trail_hip: int,
 ) -> float:
-    """Approximate shaft lean using lead arm vs vertical at impact.
+    """Approximate shaft lean using the lead arm as a proxy for the club.
 
-    Positive = leaning toward target (good, ~5-8° on tour).
-    We use lead arm as a club proxy because we don't track the club head.
+    Positive = leaning toward target (good, ~5-9° on tour).
+
+    "Toward target" is determined per-user from the hip line at address —
+    the lead-side direction is from trail hip to lead hip in 3D. This works
+    regardless of camera angle and handedness, fixing the buggy hand-coded
+    sign convention in the previous version.
     """
-    sh = lm[impact_idx, shoulder, :2]
-    wr = lm[impact_idx, wrist, :2]
+    impact = phases.impact
+    sh = lm[impact, lead_shoulder, :3]
+    wr = lm[impact, lead_wrist, :3]
     arm_vec = wr - sh
-    # Image y grows downward; vertical-down vector is (0, 1).
-    vertical = np.array([0.0, 1.0])
-    raw_angle = float(angle_between(arm_vec, vertical))
-    # Sign: for RH golfer, target is +x; if wrist is left of (less x than)
-    # shoulder, the arm leans toward target → positive lean.
-    horizontal_component = wr[0] - sh[0]
-    sign = -1.0 if (horizontal_component > 0) == is_rh else 1.0
+
+    # Vertical down direction (gravity in MediaPipe coords: image-y grows downward).
+    down = np.array([0.0, 1.0, 0.0])
+    raw_angle = float(angle_between(arm_vec, down))
+
+    # Lead direction at address: from trail hip to lead hip.
+    addr = phases.address_end
+    lead_dir = lm[addr, lead_hip, :3] - lm[addr, trail_hip, :3]
+    lead_norm = np.linalg.norm(lead_dir)
+    if lead_norm < 1e-6:
+        return raw_angle
+    lead_unit = lead_dir / lead_norm
+
+    # Project arm vector onto lead direction. If arm leans toward target, the
+    # projection is positive. If it lags behind (scoop), negative.
+    forward_component = float(np.dot(arm_vec, lead_unit))
+    sign = 1.0 if forward_component > 0 else -1.0
     return raw_angle * sign
